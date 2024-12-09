@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AR Interior Design Studio</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/tailwindcss/2.2.19/tailwind.min.css" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://unpkg.com/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+    <script src="https://unpkg.com/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@webxr-input-sources/input@0.0.3/dist/webxr-input.min.js"></script>
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            height: 100%;
+            font-family: 'Arial', sans-serif;
+            background-color: #f4f4f4;
+        }
+        #ar-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 1;
+        }
+        #object-sidebar {
+            position: fixed;
+            right: 0;
+            top: 0;
+            width: 250px;
+            height: 100%;
+            background-color: rgba(255,255,255,0.9);
+            z-index: 10;
+            padding: 20px;
+            overflow-y: auto;
+        }
+        .object-item {
+            cursor: pointer;
+            margin-bottom: 15px;
+            transition: transform 0.3s ease;
+        }
+        .object-item:hover {
+            transform: scale(1.05);
+        }
+        #customization-panel {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            background-color: rgba(255,255,255,0.9);
+            padding: 15px;
+            display: none;
+            z-index: 10;
+        }
+    </style>
+</head>
+<body class="overflow-hidden">
+    <div id="ar-canvas"></div>
+    
+    <div id="object-sidebar">
+        <h2 class="text-2xl font-bold mb-4">Objects</h2>
+        <div id="object-list">
+            <!-- Dynamically populated object items -->
+        </div>
+    </div>
+
+    <div id="customization-panel">
+        <div class="flex items-center justify-center space-x-4">
+            <div>
+                <label>Scale</label>
+                <input type="range" id="scale-slider" min="0.5" max="2" step="0.1" value="1">
+            </div>
+            <div>
+                <label>Color</label>
+                <input type="color" id="color-picker">
+            </div>
+            <button id="delete-object" class="bg-red-500 text-white px-4 py-2 rounded">Delete</button>
+        </div>
+    </div>
+
+    <script>
+        class ARInteriorDesigner {
+            constructor() {
+                this.scene = null;
+                this.camera = null;
+                this.renderer = null;
+                this.selectedObject = null;
+                this.objects = [];
+                this.objectTemplates = [
+                    { name: 'fullsofa', modelUrl: 'fullsofa.glb', thumbnail: 'fullsofa.png' },
+                    { name: 'flower', modelUrl: 'flower.glb', thumbnail: 'flower.png' },
+                    { name: 'Table', modelUrl: 'table.glb', thumbnail: 'table.png' }
+
+                ];
+                this.init();
+            }
+
+            init() {
+                // Scene setup
+                this.scene = new THREE.Scene();
+                this.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+                this.renderer = new THREE.WebGLRenderer({ 
+                    canvas: document.createElement('canvas'),
+                    alpha: true,
+                    antialias: true 
+                });
+                this.renderer.setSize(window.innerWidth, window.innerHeight);
+                document.getElementById('ar-canvas').appendChild(this.renderer.domElement);
+
+                // Lighting
+                const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+                this.scene.add(ambientLight);
+                const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+                directionalLight.position.set(0, 10, 0);
+                this.scene.add(directionalLight);
+
+                // Camera controls
+                this.controls = new THREE.OrbitControls(this.camera, this.renderer.domElement);
+                this.camera.position.z = 5;
+
+                this.setupAR();
+                this.populateObjectList();
+                this.setupEventListeners();
+                this.animate();
+            }
+
+            setupAR() {
+                // WebXR AR setup
+                if ('xr' in navigator) {
+                    navigator.xr.requestSession('immersive-ar', {
+                        requiredFeatures: ['hit-test']
+                    }).then((session) => {
+                        // AR session setup logic
+                    }).catch(console.error);
+                }
+            }
+
+            populateObjectList() {
+                const objectList = document.getElementById('object-list');
+                this.objectTemplates.forEach(template => {
+                    const objectItem = document.createElement('div');
+                    objectItem.className = 'object-item flex items-center p-2 bg-white rounded shadow';
+                    objectItem.innerHTML = `
+                        <img src="${template.thumbnail}" class="w-16 h-16 mr-4 object-cover">
+                        <span class="text-lg">${template.name}</span>
+                    `;
+                    objectItem.addEventListener('click', () => this.addObject(template));
+                    objectList.appendChild(objectItem);
+                });
+            }
+
+            addObject(template) {
+                const loader = new THREE.GLTFLoader();
+                loader.load(template.modelUrl, (gltf) => {
+                    const object = gltf.scene;
+                    object.position.set(0, 0, -3);
+                    object.scale.set(1, 1, 1);
+                    this.scene.add(object);
+                    this.objects.push(object);
+                    this.selectObject(object);
+                });
+            }
+
+            selectObject(object) {
+                this.selectedObject = object;
+                document.getElementById('customization-panel').style.display = 'flex';
+            }
+
+            setupEventListeners() {
+                document.getElementById('scale-slider').addEventListener('input', (e) => {
+                    if (this.selectedObject) {
+                        const scale = parseFloat(e.target.value);
+                        this.selectedObject.scale.set(scale, scale, scale);
+                    }
+                });
+
+                document.getElementById('color-picker').addEventListener('input', (e) => {
+                    if (this.selectedObject) {
+                        this.selectedObject.traverse((child) => {
+                            if (child.isMesh) {
+                                child.material.color.set(e.target.value);
+                            }
+                        });
+                    }
+                });
+
+                document.getElementById('delete-object').addEventListener('click', () => {
+                    if (this.selectedObject) {
+                        this.scene.remove(this.selectedObject);
+                        this.objects = this.objects.filter(obj => obj !== this.selectedObject);
+                        this.selectedObject = null;
+                        document.getElementById('customization-panel').style.display = 'none';
+                    }
+                });
+
+                window.addEventListener('resize', () => {
+                    this.camera.aspect = window.innerWidth / window.innerHeight;
+                    this.camera.updateProjectionMatrix();
+                    this.renderer.setSize(window.innerWidth, window.innerHeight);
+                });
+            }
+
+            animate() {
+                requestAnimationFrame(() => this.animate());
+                this.controls.update();
+                this.renderer.render(this.scene, this.camera);
+            }
+        }
+
+        // Initialize the AR Interior Designer
+        document.addEventListener('DOMContentLoaded', () => {
+            const arDesigner = new ARInteriorDesigner();
+        });
+    </script>
+</body>
+</html>
